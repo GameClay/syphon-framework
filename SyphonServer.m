@@ -643,6 +643,51 @@ static void finalizer()
 //	glMatrixMode(matrixMode);
 }
 
+- (void)publishFramebuffer:(GLuint)fboID imageRegion:(NSRect)region textureDimensions:(NSSize)size
+{
+	// TODO: we should probably check we're not already bound and raise an exception here
+	// to enforce proper use
+#if !SYPHON_DEBUG_NO_DRAWING
+	// check the images bounds, compare with our cached rect, if they dont match, rebuild the IOSurface/FBO/Texture combo.
+	if(! NSEqualSizes(_surfaceTexture.textureSize, size))
+	{
+		[self destroyIOSurface];
+		[self setupIOSurfaceForSize:size];
+		_pushPending = YES;
+	}
+
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT, &_previousFBO);
+	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING_EXT, &_previousReadFBO);
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING_EXT, &_previousDrawFBO);
+
+	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, fboID);
+	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, _surfaceFBO);
+
+	glBlitFramebufferEXT(region.origin.x, region.origin.y,
+	                     region.size.width, region.size.height,
+	                     0, 0, size.width, size.height,
+	                     GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+	glFlushRenderAPPLE();
+
+	// restore state
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, _previousFBO);
+	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, _previousReadFBO);
+	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, _previousDrawFBO);
+#endif
+	if (_pushPending)
+	{
+		// Our IOSurface won't update until the next glFlush(). Usually we rely on our host doing this, but
+		// we must do it for the first frame on a new surface to avoid sending surface details for a surface
+		// which has no clean image.
+		glFlush();
+		// Push the new surface ID to clients
+		[(SyphonServerConnectionManager *)_connectionManager setSurfaceID:IOSurfaceGetID(_surfaceRef)];
+		_pushPending = NO;
+	}
+	[(SyphonServerConnectionManager *)_connectionManager publishNewFrame];
+}
+
 - (SYPHON_IMAGE_UNIQUE_CLASS_NAME *)newFrameImage
 {
 	return [_surfaceTexture retain];
