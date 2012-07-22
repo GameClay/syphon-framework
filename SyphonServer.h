@@ -198,6 +198,16 @@ YES if clients are currently attached, NO otherwise. If you generate frames freq
 - (void)publishFrameTexture:(GLuint)texID textureTarget:(GLenum)target imageRegion:(NSRect)region textureDimensions:(NSSize)size flipped:(BOOL)isFlipped;
 
 /*! 
+ Publishes the part of the framebuffer described in region of the named FBO to clients. You should not bracket calls to this method with calls to -bindToDrawFrameOfSize: and -unbindAndPublish - they are provided as an alternative to using this method.
+ 
+ This method does not lock the server's CGL context. If there is a chance of other threads using the context during calls to this method, bracket it with calls to CGLLockContext() and CGLUnlockContext(), passing in the value of the server's context property as the argument.
+ @param fboID The name of the FBO to publish, which must be valid in the CGL context provided when the server was created.
+ @param region The sub-region of the FBO to publish.
+ @param size The full size of the FBO
+*/
+- (void)publishFramebuffer:(GLuint)fboID imageRegion:(NSRect)region textureDimensions:(NSSize)size;
+
+/*! 
  Binds an FBO for you to publish a frame of the given dimensions by drawing into the server's context (check it using the context property). If YES is returned, you must pair this with a call to -unbindAndPublish once you have finished drawing. If NO is returned you should abandon drawing and not call -unbindAndPublish.
  This method does not lock the server's CGL context. If there is a chance other threads may use the context during calls to this method, bracket it with calls to CGLLockContext() and CGLUnlockContext(), passing in the value of the server's context property as the argument.
  @param size The size the frame you wish to publish.
