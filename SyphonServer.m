@@ -39,6 +39,12 @@
 
 #import <libkern/OSAtomic.h>
 
+extern GLuint shader_compile(const char* shader_src, GLenum shader_type, GLuint version);
+extern GLuint program_link(GLuint vertShader, GLuint fragShader);
+extern const char* syphonServerVertSrc;
+extern const char* syphonServer2DFragSrc;
+extern const char* syphonServerRectFragSrc;
+
 @interface SyphonServer (Private)
 + (void)addServerToRetireList:(NSString *)serverUUID;
 + (void)removeServerFromRetireList:(NSString *)serverUUID;
@@ -506,58 +512,34 @@ static void finalizer()
 	{
 #if !SYPHON_DEBUG_NO_DRAWING
 		// render to our FBO with an IOSurface backed texture attachment (whew!)
-		//	GLint matrixMode;
-		//	glGetIntegerv(GL_MATRIX_MODE, &matrixMode);
-		
-		glPushAttrib(GL_ALL_ATTRIB_BITS);
-		glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
 		// Setup OpenGL states
 		NSSize surfaceSize = _surfaceTexture.textureSize;
 		glViewport(0, 0, surfaceSize.width,  surfaceSize.height);
+
+		glEnable(target);
+		glBindTexture(target, texID);
 
 		// We need to ensure we set this before changing our texture matrix
 		glActiveTexture(GL_TEXTURE0);
 		// ensure we act on the proper client texture as well
 		glClientActiveTexture(GL_TEXTURE0);
-		
-		glMatrixMode(GL_TEXTURE);
-		glPushMatrix();
-		glLoadIdentity();
-		
-		glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		glOrtho(0, surfaceSize.width, 0, surfaceSize.height, -1, 1);
-		
-		glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
-		
-				
-		// dont bother clearing. we dont have any alpha so we just write over the buffer contents. saves us a write.
-		// via GL_REPLACE TEX_ENV
-		glEnable(target);
-		glBindTexture(target, texID);
-		
-		// do a nearest interp.
-//		glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-//		glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-		glColor4f(1.0, 1.0, 1.0, 1.0);
-		
-		// why do we need it ?
-		glDisable(GL_BLEND);
-		
+		// Store last program
+		GLint lastProgram;
+		glGetIntegerv(GL_CURRENT_PROGRAM, &lastProgram);
+
 		GLfloat tex_coords[8];
 		
 		if(target == GL_TEXTURE_2D)
 		{
-            // Cannot assume mip-mapping and repeat modes are ok & will work, so we:
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);	// Linear Filtering
-            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);	// Linear Filtering
-                        
+			glUseProgram(_2dShaderProgram);
+			glUniform1i(_2dTex0Loc, 0);
+
+			// Cannot assume mip-mapping and repeat modes are ok & will work, so we:
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);	// Linear Filtering
+			glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);	// Linear Filtering
+
 			GLfloat texOriginX = region.origin.x / size.width;
 			GLfloat texOriginY = region.origin.y / size.height;
 			GLfloat texExtentX = (region.size.width + region.origin.x) / size.width;
@@ -581,6 +563,9 @@ static void finalizer()
 		}
 		else
 		{
+			glUseProgram(_rectShaderProgram);
+			glUniform1i(_rectTex0Loc, 0);
+
 			if(!isFlipped)
 			{	// X													// Y
 				tex_coords[0] = region.origin.x;						tex_coords[1] = 0.0;
@@ -596,51 +581,54 @@ static void finalizer()
 				tex_coords[6] = surfaceSize.width;						tex_coords[7] = region.size.height + region.origin.y;
 			}
 		}
-		
-		GLfloat verts[] = 
+
+		// Store buffer state
+		GLint vaoBinding, arrayBinding;
+		glGetIntegerv(GL_VERTEX_ARRAY_BINDING_APPLE, &vaoBinding);
+		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrayBinding);
+
+		// Set VAO
+		if(_isGL3)
 		{
-			0.0f, 0.0f,
-			0.0f, surfaceSize.height,
-			surfaceSize.width, surfaceSize.height,
-			surfaceSize.width, 0.0f,
-		};
-        
-        // Ought to cache the GL_ARRAY_BUFFER_BINDING, GL_ELEMENT_ARRAY_BUFFER_BINDING, set buffer to 0, and reset
-        GLint arrayBuffer, elementArrayBuffer;
-        glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &elementArrayBuffer);
-        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrayBuffer);
+			glBindVertexArray(_vertexArrayObj);
+		}
+		else
+		{
+			glBindVertexArrayAPPLE(_vertexArrayObj);
+		}
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        
-		glEnableClientState( GL_TEXTURE_COORD_ARRAY );
-		glTexCoordPointer(2, GL_FLOAT, 0, tex_coords );
-		glEnableClientState(GL_VERTEX_ARRAY);
-		glVertexPointer(2, GL_FLOAT, 0, verts );
-		glDrawArrays( GL_TRIANGLE_FAN, 0, 4 );
-		
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementArrayBuffer);
-        glBindBuffer(GL_ARRAY_BUFFER, arrayBuffer);
-        
+		// Update texture coord buffer
+		glBindBuffer(GL_ARRAY_BUFFER, _texCoordBuffer);
+		glBufferData(GL_ARRAY_BUFFER, 8 * sizeof(GLfloat),
+		             tex_coords, GL_STREAM_DRAW);
+
+		// Draw!
+		glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+		// Restore buffers
+		if(_isGL3)
+		{
+			glBindVertexArray(0);
+		}
+		else
+		{
+			glBindVertexArrayAPPLE(0);
+		}
+		glBindBuffer(GL_ARRAY_BUFFER, arrayBinding);
+		if(_isGL3)
+		{
+			glBindVertexArray(vaoBinding);
+		}
+		else
+		{
+			glBindVertexArrayAPPLE(vaoBinding);
+		}
+
 		glBindTexture(target, 0);
-		
-		// Restore OpenGL states
-		glMatrixMode(GL_MODELVIEW);
-		glPopMatrix();
-		
-		glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
-	
-
-		glMatrixMode(GL_TEXTURE);
-		glPopMatrix();
-		
-		glPopClientAttrib();
-		glPopAttrib();
+		glUseProgram(lastProgram);
 #endif // SYPHON_DEBUG_NO_DRAWING
 		[self unbindAndPublish];
 	}
-//	glMatrixMode(matrixMode);
 }
 
 - (void)publishFramebuffer:(GLuint)fboID imageRegion:(NSRect)region textureDimensions:(NSSize)size
@@ -738,10 +726,99 @@ static void finalizer()
 			NSLog(@"Syphon Server: Cannot create FBO (OpenGL Error %04X)", status);
 			[self destroyIOSurface];
 		}
+
+		// Determine GL version
+		float glLanguageVersion;
+		GLuint glslVersion;
+		const char* glVerString = (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
+		sscanf(glVerString, "%f", &glLanguageVersion);
+		glslVersion = (GLuint)(100.0f * glLanguageVersion);
+		glslVersion = (glslVersion <= 150 ? glslVersion : 150);
+		_isGL3 = (glslVersion > 120 ? YES : NO);
+
+		// Generate shaders
+		_vertexShader = shader_compile(syphonServerVertSrc, GL_VERTEX_SHADER, glslVersion);
+		_2dFragShader = shader_compile(syphonServer2DFragSrc, GL_FRAGMENT_SHADER, glslVersion);
+		_rectFragShader = shader_compile(syphonServerRectFragSrc, GL_FRAGMENT_SHADER, glslVersion);
+		_2dShaderProgram = program_link(_vertexShader, _2dFragShader);
+		_rectShaderProgram = program_link(_vertexShader, _rectFragShader);
+		_2dTex0Loc = glGetUniformLocation(_2dShaderProgram, "tex0");
+		_rectTex0Loc = glGetUniformLocation(_rectShaderProgram, "tex0");
+
+		// Generate VAO
+		GLint vaoBinding, arrayBinding;
+		glGetIntegerv(GL_VERTEX_ARRAY_BINDING_APPLE, &vaoBinding);
+		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrayBinding);
+
+		if(_isGL3)
+		{
+			glGenVertexArrays(1, &_vertexArrayObj);
+			glBindVertexArray(_vertexArrayObj);
+		}
+		else
+		{
+			glGenVertexArraysAPPLE(1, &_vertexArrayObj);
+			glBindVertexArrayAPPLE(_vertexArrayObj);
+		}
+
+		// Quad positions
+		glGenBuffers(1, &_positionBuffer);
+		glBindBuffer(GL_ARRAY_BUFFER, _positionBuffer);
+		GLfloat verts[] =
+		{
+			-1.0f, -1.0f,
+			-1.0f, 1.0f,
+			1.0f, 1.0f,
+			1.0f, -1.0f,
+		};
+		glBufferData(GL_ARRAY_BUFFER, 4 * sizeof(GLfloat) * 2,
+		             verts, GL_STATIC_DRAW);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 2, NULL);
+
+		// Stream-draw UV buffer
+		glGenBuffers(1, &_texCoordBuffer);
+		glBindBuffer(GL_ARRAY_BUFFER, _texCoordBuffer);
+		GLfloat uvs[] =
+		{
+			0.0f, 0.0f,
+			0.0f, 1.0f,
+			1.0f, 1.0f,
+			1.0f, 0.0f,
+		};
+		glBufferData(GL_ARRAY_BUFFER, 4 * sizeof(GLfloat) * 2,
+		             uvs, GL_STREAM_DRAW);
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 2, NULL);
+
+		// Restore state
+
+		// Bind VAO of 0 before messing with VAO states
+		if(_isGL3)
+		{
+			glBindVertexArray(0);
+		}
+		else
+		{
+			glBindVertexArrayAPPLE(0);
+		}
+		glBindBuffer(GL_ARRAY_BUFFER, arrayBinding);
+		glDisableVertexAttribArray(0);
+		glDisableVertexAttribArray(1);
+
+		// Now restore the VAO
+		if(_isGL3)
+		{
+			glBindVertexArray(vaoBinding);
+		}
+		else
+		{
+			glBindVertexArrayAPPLE(vaoBinding);
+		}
 	}
 	
 	// restore state
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, _previousFBO);	
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, _previousFBO);
 	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, _previousReadFBO);
 	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, _previousDrawFBO);
 	glPopAttrib();
@@ -756,7 +833,30 @@ static void finalizer()
 		glDeleteFramebuffersEXT(1, &_surfaceFBO);
 		_surfaceFBO = 0;
 	}
-	
+
+	if (_vertexArrayObj != 0)
+	{
+		glDeleteBuffers(1, &_positionBuffer);
+		glDeleteBuffers(1, &_texCoordBuffer);
+		if(_isGL3)
+		{
+			glDeleteVertexArrays(1, &_vertexArrayObj);
+		}
+		else
+		{
+			glDeleteVertexArraysAPPLE(1, &_vertexArrayObj);
+		}
+	}
+
+	if (_2dShaderProgram != 0)
+	{
+		glDeleteShader(_vertexShader);
+		glDeleteShader(_2dFragShader);
+		glDeleteShader(_rectFragShader);
+		glDeleteProgram(_2dShaderProgram);
+		glDeleteProgram(_rectShaderProgram);
+	}
+
 	if (_surfaceRef != NULL)
 	{		
 		CFRelease(_surfaceRef);

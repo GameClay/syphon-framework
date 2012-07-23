@@ -137,6 +137,12 @@ extern NSString* const SyphonImageFormatLuminanceAlpha32;
 	GLint _previousReadFBO;
 	GLint _previousDrawFBO;
 	GLint _previousFBO;
+
+	GLuint _positionBuffer, _texCoordBuffer, _vertexArrayObj;
+	GLuint _vertexShader, _2dFragShader, _rectFragShader;
+	GLuint _2dShaderProgram, _rectShaderProgram;
+	GLint _2dTex0Loc, _rectTex0Loc;
+	BOOL _isGL3;
 	
 	int32_t _mdLock;
 }
