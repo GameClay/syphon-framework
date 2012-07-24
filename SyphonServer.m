@@ -111,7 +111,13 @@ static void finalizer()
 		
 		_mdLock = OS_SPINLOCK_INIT;
 		
-		cgl_ctx = CGLRetainContext(context);
+		CGLError cglErr = CGLCreateContext(CGLGetPixelFormat(context), context, &cgl_ctx);
+		if(cglErr != kCGLNoError)
+		{
+			NSLog(@"Error creating shared context: %s", CGLErrorString(cglErr));
+			[self release];
+			return nil;
+		}
 		
 		if (serverName == nil)
 		{
@@ -455,6 +461,9 @@ static void finalizer()
 	// TODO: we should probably check we're not already bound and raise an exception here
 	// to enforce proper use
 #if !SYPHON_DEBUG_NO_DRAWING
+	_previousCGLContext = CGLGetCurrentContext();
+	CGLSetCurrentContext(cgl_ctx);
+
 	// check the images bounds, compare with our cached rect, if they dont match, rebuild the IOSurface/FBO/Texture combo.
 	if(! NSEqualSizes(_surfaceTexture.textureSize, size)) 
 	{
@@ -463,19 +472,12 @@ static void finalizer()
 		_pushPending = YES;
 	}
 	
-	glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT, &_previousFBO);
-	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING_EXT, &_previousReadFBO);
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING_EXT, &_previousDrawFBO);
-	
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, _surfaceFBO);
 	
 	GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
 	if(status != GL_FRAMEBUFFER_COMPLETE_EXT)
 	{
-		// restore state
-		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, _previousFBO);	
-		glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, _previousReadFBO);
-		glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, _previousDrawFBO);
+		CGLSetCurrentContext(_previousCGLContext);
 		return NO;
 	}
 #endif
@@ -487,11 +489,7 @@ static void finalizer()
 #if !SYPHON_DEBUG_NO_DRAWING
 	// flush to make sure IOSurface updates are seen globally.
 	glFlushRenderAPPLE();
-	
-	// restore state
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, _previousFBO);	
-	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, _previousReadFBO);
-	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, _previousDrawFBO);
+
 #endif
 	if (_pushPending)
 	{
@@ -504,6 +502,7 @@ static void finalizer()
 		_pushPending = NO;
 	}
 	[(SyphonServerConnectionManager *)_connectionManager publishNewFrame];
+	CGLSetCurrentContext(_previousCGLContext);
 }
 
 - (void)publishFrameTexture:(GLuint)texID textureTarget:(GLenum)target imageRegion:(NSRect)region textureDimensions:(NSSize)size flipped:(BOOL)isFlipped
@@ -523,9 +522,6 @@ static void finalizer()
 		glActiveTexture(GL_TEXTURE0);
 		// ensure we act on the proper client texture as well
 		glClientActiveTexture(GL_TEXTURE0);
-		// Store last program
-		GLint lastProgram;
-		glGetIntegerv(GL_CURRENT_PROGRAM, &lastProgram);
 
 		GLfloat tex_coords[8];
 		
@@ -582,11 +578,6 @@ static void finalizer()
 			}
 		}
 
-		// Store buffer state
-		GLint vaoBinding, arrayBinding;
-		glGetIntegerv(GL_VERTEX_ARRAY_BINDING_APPLE, &vaoBinding);
-		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrayBinding);
-
 		// Set VAO
 		if(_isGL3)
 		{
@@ -604,28 +595,6 @@ static void finalizer()
 
 		// Draw!
 		glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-		// Restore buffers
-		if(_isGL3)
-		{
-			glBindVertexArray(0);
-		}
-		else
-		{
-			glBindVertexArrayAPPLE(0);
-		}
-		glBindBuffer(GL_ARRAY_BUFFER, arrayBinding);
-		if(_isGL3)
-		{
-			glBindVertexArray(vaoBinding);
-		}
-		else
-		{
-			glBindVertexArrayAPPLE(vaoBinding);
-		}
-
-		glBindTexture(target, 0);
-		glUseProgram(lastProgram);
 #endif // SYPHON_DEBUG_NO_DRAWING
 		[self unbindAndPublish];
 	}
@@ -636,6 +605,9 @@ static void finalizer()
 	// TODO: we should probably check we're not already bound and raise an exception here
 	// to enforce proper use
 #if !SYPHON_DEBUG_NO_DRAWING
+	_previousCGLContext = CGLGetCurrentContext();
+	CGLSetCurrentContext(cgl_ctx);
+
 	// check the images bounds, compare with our cached rect, if they dont match, rebuild the IOSurface/FBO/Texture combo.
 	if(! NSEqualSizes(_surfaceTexture.textureSize, size))
 	{
@@ -643,10 +615,6 @@ static void finalizer()
 		[self setupIOSurfaceForSize:size];
 		_pushPending = YES;
 	}
-
-	glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT, &_previousFBO);
-	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING_EXT, &_previousReadFBO);
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING_EXT, &_previousDrawFBO);
 
 	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, fboID);
 	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, _surfaceFBO);
@@ -657,11 +625,6 @@ static void finalizer()
 	                     GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
 	glFlushRenderAPPLE();
-
-	// restore state
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, _previousFBO);
-	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, _previousReadFBO);
-	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, _previousDrawFBO);
 #endif
 	if (_pushPending)
 	{
@@ -674,6 +637,7 @@ static void finalizer()
 		_pushPending = NO;
 	}
 	[(SyphonServerConnectionManager *)_connectionManager publishNewFrame];
+	CGLSetCurrentContext(_previousCGLContext);
 }
 
 - (SYPHON_IMAGE_UNIQUE_CLASS_NAME *)newFrameImage
@@ -686,7 +650,13 @@ static void finalizer()
 
 #pragma mark IOSurface handling
 - (void) setupIOSurfaceForSize:(NSSize)size
-{	
+{
+#if defined(DEBUG) || defined(_DEBUG)
+	// The caller of this function must ensure the CGL context is properly set
+	NSAssert(CGLGetCurrentContext() == cgl_ctx,
+	         @"CGL context must be set to cgl_ctx before [SyphonServer setupIOSurfaceForSize:] is called.");
+#endif
+
 #if !SYPHON_DEBUG_NO_DRAWING
 	// init our texture and IOSurface
 	
@@ -701,12 +671,6 @@ static void finalizer()
 	[surfaceAttributes release];
 	
 	// make a new texture.
-	
-	// save state
-	glPushAttrib(GL_ALL_ATTRIB_BITS);
-	glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT, &_previousFBO);
-	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING_EXT, &_previousReadFBO);
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING_EXT, &_previousDrawFBO);
 	
 	_surfaceTexture = [[SyphonIOSurfaceImage alloc] initWithSurface:_surfaceRef forContext:cgl_ctx internalFormat:_internalFormat format:_format type:_type];
 	if(_surfaceTexture == nil)
@@ -746,10 +710,6 @@ static void finalizer()
 		_rectTex0Loc = glGetUniformLocation(_rectShaderProgram, "tex0");
 
 		// Generate VAO
-		GLint vaoBinding, arrayBinding;
-		glGetIntegerv(GL_VERTEX_ARRAY_BINDING_APPLE, &vaoBinding);
-		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrayBinding);
-
 		if(_isGL3)
 		{
 			glGenVertexArrays(1, &_vertexArrayObj);
@@ -791,9 +751,6 @@ static void finalizer()
 		glEnableVertexAttribArray(1);
 		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 2, NULL);
 
-		// Restore state
-
-		// Bind VAO of 0 before messing with VAO states
 		if(_isGL3)
 		{
 			glBindVertexArray(0);
@@ -802,26 +759,7 @@ static void finalizer()
 		{
 			glBindVertexArrayAPPLE(0);
 		}
-		glBindBuffer(GL_ARRAY_BUFFER, arrayBinding);
-		glDisableVertexAttribArray(0);
-		glDisableVertexAttribArray(1);
-
-		// Now restore the VAO
-		if(_isGL3)
-		{
-			glBindVertexArray(vaoBinding);
-		}
-		else
-		{
-			glBindVertexArrayAPPLE(vaoBinding);
-		}
 	}
-	
-	// restore state
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, _previousFBO);
-	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, _previousReadFBO);
-	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, _previousDrawFBO);
-	glPopAttrib();
 #endif // SYPHON_DEBUG_NO_DRAWING
 }
 
