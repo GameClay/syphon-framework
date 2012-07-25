@@ -692,13 +692,18 @@ static void finalizer()
 		}
 
 		// Determine GL version
+		CGLPixelFormatObj pixFormat = CGLGetPixelFormat(cgl_ctx); // Not retained
+		GLint cglProfile;
+		CGLDescribePixelFormat(pixFormat, 0, kCGLPFAOpenGLProfile, &cglProfile);
+		_isGL3 = (cglProfile == kCGLOGLPVersion_Legacy ? NO : YES);
+
+		// Determine GLSL version
 		float glLanguageVersion;
 		GLuint glslVersion;
 		const char* glVerString = (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
 		sscanf(glVerString, "%f", &glLanguageVersion);
 		glslVersion = (GLuint)(100.0f * glLanguageVersion);
 		glslVersion = (glslVersion <= 150 ? glslVersion : 150);
-		_isGL3 = (glslVersion > 120 ? YES : NO);
 
 		// Generate shaders
 		_vertexShader = shader_compile(syphonServerVertSrc, GL_VERTEX_SHADER, glslVersion);
