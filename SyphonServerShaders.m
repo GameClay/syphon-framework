@@ -89,9 +89,8 @@ GLuint program_link(CGLContextObj cgl_ctx, GLuint vertShader, GLuint fragShader)
    return ret;
 }
 
-
 const char* syphonServerVertSrc =
-"#line 96\n"
+"#line 93\n"
 "\n"
 "#if __VERSION__ >= 140\n"
 "in vec2 InPosition;\n"
@@ -111,7 +110,7 @@ const char* syphonServerVertSrc =
 "}\n";
 
 const char* syphonServer2DFragSrc =
-"#line 116\n"
+"#line 113\n"
 "\n"
 "#if __VERSION__ >= 140\n"
 "in vec2 texCoord0;\n"
