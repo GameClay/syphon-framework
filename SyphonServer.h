@@ -133,12 +133,7 @@ extern NSString* const SyphonImageFormatLuminanceAlpha32;
 	BOOL _pushPending;
 	SYPHON_IMAGE_UNIQUE_CLASS_NAME *_surfaceTexture;
 	GLuint _surfaceFBO;
-	
-	GLint _previousReadFBO;
-	GLint _previousDrawFBO;
-	GLint _previousFBO;
 
-	CGLContextObj _previousCGLContext;
 	GLuint _positionBuffer, _texCoordBuffer, _vertexArrayObj;
 	GLuint _vertexShader, _2dFragShader, _rectFragShader;
 	GLuint _2dShaderProgram, _rectShaderProgram;

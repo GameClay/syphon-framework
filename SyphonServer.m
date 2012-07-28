@@ -39,8 +39,19 @@
 
 #import <libkern/OSAtomic.h>
 
-extern GLuint shader_compile(const char* shader_src, GLenum shader_type, GLuint version);
-extern GLuint program_link(GLuint vertShader, GLuint fragShader);
+// These macros are GL3 friendly,the *_vertex_array_EXT function pointers
+// *will not* work in GL3, and the *_vertex_array_ARB function pointers
+// *will not* work in GL2.
+#define glBindVertexArrayARB(id) \
+    (*(CGL_MACRO_CONTEXT)->disp.bind_vertex_array_ARB)(CGL_MACRO_CONTEXT_RENDERER, id)
+#define glDeleteVertexArraysARB(n, ids) \
+    (*(CGL_MACRO_CONTEXT)->disp.delete_vertex_arrays_ARB)(CGL_MACRO_CONTEXT_RENDERER, n, ids)
+#define glGenVertexArraysARB(n, ids) \
+    (*(CGL_MACRO_CONTEXT)->disp.gen_vertex_arrays_ARB)(CGL_MACRO_CONTEXT_RENDERER, n, ids)
+
+extern GLuint shader_compile(CGLContextObj cgl_ctx, const char* shader_src,
+                             GLenum shader_type, GLuint version);
+extern GLuint program_link(CGLContextObj cgl_ctx, GLuint vertShader, GLuint fragShader);
 extern const char* syphonServerVertSrc;
 extern const char* syphonServer2DFragSrc;
 extern const char* syphonServerRectFragSrc;
@@ -461,9 +472,6 @@ static void finalizer()
 	// TODO: we should probably check we're not already bound and raise an exception here
 	// to enforce proper use
 #if !SYPHON_DEBUG_NO_DRAWING
-	_previousCGLContext = CGLGetCurrentContext();
-	CGLSetCurrentContext(cgl_ctx);
-
 	// check the images bounds, compare with our cached rect, if they dont match, rebuild the IOSurface/FBO/Texture combo.
 	if(! NSEqualSizes(_surfaceTexture.textureSize, size)) 
 	{
@@ -477,7 +485,6 @@ static void finalizer()
 	GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
 	if(status != GL_FRAMEBUFFER_COMPLETE_EXT)
 	{
-		CGLSetCurrentContext(_previousCGLContext);
 		return NO;
 	}
 #endif
@@ -502,7 +509,6 @@ static void finalizer()
 		_pushPending = NO;
 	}
 	[(SyphonServerConnectionManager *)_connectionManager publishNewFrame];
-	CGLSetCurrentContext(_previousCGLContext);
 }
 
 - (void)publishFrameTexture:(GLuint)texID textureTarget:(GLenum)target imageRegion:(NSRect)region textureDimensions:(NSSize)size flipped:(BOOL)isFlipped
@@ -581,7 +587,7 @@ static void finalizer()
 		// Set VAO
 		if(_isGL3)
 		{
-			glBindVertexArray(_vertexArrayObj);
+			glBindVertexArrayARB(_vertexArrayObj);
 		}
 		else
 		{
@@ -605,9 +611,6 @@ static void finalizer()
 	// TODO: we should probably check we're not already bound and raise an exception here
 	// to enforce proper use
 #if !SYPHON_DEBUG_NO_DRAWING
-	_previousCGLContext = CGLGetCurrentContext();
-	CGLSetCurrentContext(cgl_ctx);
-
 	// check the images bounds, compare with our cached rect, if they dont match, rebuild the IOSurface/FBO/Texture combo.
 	if(! NSEqualSizes(_surfaceTexture.textureSize, size))
 	{
@@ -637,7 +640,6 @@ static void finalizer()
 		_pushPending = NO;
 	}
 	[(SyphonServerConnectionManager *)_connectionManager publishNewFrame];
-	CGLSetCurrentContext(_previousCGLContext);
 }
 
 - (SYPHON_IMAGE_UNIQUE_CLASS_NAME *)newFrameImage
@@ -651,12 +653,6 @@ static void finalizer()
 #pragma mark IOSurface handling
 - (void) setupIOSurfaceForSize:(NSSize)size
 {
-#if defined(DEBUG) || defined(_DEBUG)
-	// The caller of this function must ensure the CGL context is properly set
-	NSAssert(CGLGetCurrentContext() == cgl_ctx,
-	         @"CGL context must be set to cgl_ctx before [SyphonServer setupIOSurfaceForSize:] is called.");
-#endif
-
 #if !SYPHON_DEBUG_NO_DRAWING
 	// init our texture and IOSurface
 	
@@ -706,19 +702,22 @@ static void finalizer()
 		glslVersion = (glslVersion <= 150 ? glslVersion : 150);
 
 		// Generate shaders
-		_vertexShader = shader_compile(syphonServerVertSrc, GL_VERTEX_SHADER, glslVersion);
-		_2dFragShader = shader_compile(syphonServer2DFragSrc, GL_FRAGMENT_SHADER, glslVersion);
-		_rectFragShader = shader_compile(syphonServerRectFragSrc, GL_FRAGMENT_SHADER, glslVersion);
-		_2dShaderProgram = program_link(_vertexShader, _2dFragShader);
-		_rectShaderProgram = program_link(_vertexShader, _rectFragShader);
+		_vertexShader = shader_compile(cgl_ctx, syphonServerVertSrc,
+                                     GL_VERTEX_SHADER, glslVersion);
+		_2dFragShader = shader_compile(cgl_ctx, syphonServer2DFragSrc,
+                                     GL_FRAGMENT_SHADER, glslVersion);
+		_rectFragShader = shader_compile(cgl_ctx, syphonServerRectFragSrc,
+                                       GL_FRAGMENT_SHADER, glslVersion);
+		_2dShaderProgram = program_link(cgl_ctx, _vertexShader, _2dFragShader);
+		_rectShaderProgram = program_link(cgl_ctx, _vertexShader, _rectFragShader);
 		_2dTex0Loc = glGetUniformLocation(_2dShaderProgram, "tex0");
 		_rectTex0Loc = glGetUniformLocation(_rectShaderProgram, "tex0");
 
 		// Generate VAO
 		if(_isGL3)
 		{
-			glGenVertexArrays(1, &_vertexArrayObj);
-			glBindVertexArray(_vertexArrayObj);
+			glGenVertexArraysARB(1, &_vertexArrayObj);
+			glBindVertexArrayARB(_vertexArrayObj);
 		}
 		else
 		{
@@ -755,15 +754,6 @@ static void finalizer()
 		             uvs, GL_STREAM_DRAW);
 		glEnableVertexAttribArray(1);
 		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 2, NULL);
-
-		if(_isGL3)
-		{
-			glBindVertexArray(0);
-		}
-		else
-		{
-			glBindVertexArrayAPPLE(0);
-		}
 	}
 #endif // SYPHON_DEBUG_NO_DRAWING
 }
@@ -783,7 +773,7 @@ static void finalizer()
 		glDeleteBuffers(1, &_texCoordBuffer);
 		if(_isGL3)
 		{
-			glDeleteVertexArrays(1, &_vertexArrayObj);
+			glDeleteVertexArraysARB(1, &_vertexArrayObj);
 		}
 		else
 		{

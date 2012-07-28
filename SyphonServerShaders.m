@@ -1,12 +1,16 @@
-#include <OpenGL/gl.h>
+#import <OpenGL/OpenGL.h>
+#import <OpenGL/gl.h>
+#import <OpenGL/CGLMacro.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-GLuint shader_compile(const char* shader_src, GLenum shader_type, GLuint version);
-GLuint program_link(GLuint vertShader, GLuint fragShader);
+GLuint shader_compile(CGLContextObj cgl_ctx, const char* shader_src,
+                      GLenum shader_type, GLuint version);
+GLuint program_link(CGLContextObj cgl_ctx, GLuint vertShader, GLuint fragShader);
 
-GLuint shader_compile(const char* shader_src, GLenum shader_type, GLuint version)
+GLuint shader_compile(CGLContextObj cgl_ctx, const char* shader_src,
+                      GLenum shader_type, GLuint version)
 {
    GLuint ret = 0;
    if(shader_src != NULL)
@@ -47,7 +51,7 @@ GLuint shader_compile(const char* shader_src, GLenum shader_type, GLuint version
    return ret;
 }
 
-GLuint program_link(GLuint vertShader, GLuint fragShader)
+GLuint program_link(CGLContextObj cgl_ctx, GLuint vertShader, GLuint fragShader)
 {
    GLint link_success;
    GLuint program, ret = 0;
