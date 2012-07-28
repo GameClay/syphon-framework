@@ -139,7 +139,9 @@ extern NSString* const SyphonImageFormatLuminanceAlpha32;
 	GLuint _2dShaderProgram, _rectShaderProgram;
 	GLint _2dTex0Loc, _rectTex0Loc;
 	BOOL _isGL3;
-	
+
+	CGLContextObj _previousCGLContext;
+
 	int32_t _mdLock;
 }
 /** @name Instantiation */

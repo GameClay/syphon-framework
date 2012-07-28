@@ -472,6 +472,11 @@ static void finalizer()
 	// TODO: we should probably check we're not already bound and raise an exception here
 	// to enforce proper use
 #if !SYPHON_DEBUG_NO_DRAWING
+	// Store off current CGLContextObj, and set cgl_ctx as current.
+	// Resolume Avenue 4, and possibly others, need this functionality.
+	_previousCGLContext = CGLGetCurrentContext();
+	CGLSetCurrentContext(cgl_ctx);
+
 	// check the images bounds, compare with our cached rect, if they dont match, rebuild the IOSurface/FBO/Texture combo.
 	if(! NSEqualSizes(_surfaceTexture.textureSize, size)) 
 	{
@@ -485,6 +490,8 @@ static void finalizer()
 	GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
 	if(status != GL_FRAMEBUFFER_COMPLETE_EXT)
 	{
+		// Restore saved CGLContextObj.
+		CGLSetCurrentContext(_previousCGLContext);
 		return NO;
 	}
 #endif
@@ -509,6 +516,9 @@ static void finalizer()
 		_pushPending = NO;
 	}
 	[(SyphonServerConnectionManager *)_connectionManager publishNewFrame];
+
+	// Restore saved CGLContextObj.
+	CGLSetCurrentContext(_previousCGLContext);
 }
 
 - (void)publishFrameTexture:(GLuint)texID textureTarget:(GLenum)target imageRegion:(NSRect)region textureDimensions:(NSSize)size flipped:(BOOL)isFlipped
