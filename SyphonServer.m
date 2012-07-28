@@ -43,11 +43,11 @@
 // *will not* work in GL3, and the *_vertex_array_ARB function pointers
 // *will not* work in GL2.
 #define glBindVertexArrayARB(id) \
-    (*(CGL_MACRO_CONTEXT)->disp.bind_vertex_array_ARB)(CGL_MACRO_CONTEXT_RENDERER, id)
+	(*(CGL_MACRO_CONTEXT)->disp.bind_vertex_array_ARB)(CGL_MACRO_CONTEXT_RENDERER, id)
 #define glDeleteVertexArraysARB(n, ids) \
-    (*(CGL_MACRO_CONTEXT)->disp.delete_vertex_arrays_ARB)(CGL_MACRO_CONTEXT_RENDERER, n, ids)
+	(*(CGL_MACRO_CONTEXT)->disp.delete_vertex_arrays_ARB)(CGL_MACRO_CONTEXT_RENDERER, n, ids)
 #define glGenVertexArraysARB(n, ids) \
-    (*(CGL_MACRO_CONTEXT)->disp.gen_vertex_arrays_ARB)(CGL_MACRO_CONTEXT_RENDERER, n, ids)
+	(*(CGL_MACRO_CONTEXT)->disp.gen_vertex_arrays_ARB)(CGL_MACRO_CONTEXT_RENDERER, n, ids)
 
 extern GLuint shader_compile(CGLContextObj cgl_ctx, const char* shader_src,
                              GLenum shader_type, GLuint version);
