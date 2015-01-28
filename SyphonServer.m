@@ -789,6 +789,7 @@ static void finalizer()
 		{
 			glDeleteVertexArraysAPPLE(1, &_vertexArrayObj);
 		}
+		_vertexArrayObj = 0;
 	}
 
 	if (_2dShaderProgram != 0)
@@ -798,6 +799,7 @@ static void finalizer()
 		glDeleteShader(_rectFragShader);
 		glDeleteProgram(_2dShaderProgram);
 		glDeleteProgram(_rectShaderProgram);
+		_2dShaderProgram = 0;
 	}
 
 	if (_surfaceRef != NULL)
